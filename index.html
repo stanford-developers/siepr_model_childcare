@@ -1883,5 +1883,98 @@ window.addEventListener("resize", function(){
 }, {passive:true});
 })();
 </script>
+<!-- ===== Sticky policy sidebar (works inside a fixed-height iframe) =====
+     Paste this block just above </body>. Safe on the full site too:
+     there it keeps the normal CSS sticky; the script only takes over when the
+     page is embedded in an iframe (where CSS sticky can't follow the host page).
+     Optional: add ?stickyTop=NN to the iframe src to leave NN px under a
+     sticky header on the host page (default 16). -->
+<style id="sticky-sidebar-fix">
+@media (min-width:900px){
+  .policy-layout{grid-template-columns:300px minmax(0,1fr);gap:24px}
+  .policy-list{position:sticky;top:76px}
+}
+html.ssf-on .policy-list{position:relative !important;top:0 !important;will-change:transform}
+</style>
+<script>
+(function(){
+  "use strict";
+  if (window.self === window.top) return;                 /* full site: CSS sticky is enough */
+  if (!("IntersectionObserver" in window)) return;
+  var layout = document.querySelector(".policy-layout");
+  var list   = document.querySelector(".policy-list");
+  if (!layout || !list) return;
+
+  var GAP = parseInt(new URLSearchParams(location.search).get("stickyTop"), 10);
+  if (isNaN(GAP)) GAP = 16;
+  var SEG = 40, STEPS = [];
+  for (var i = 0; i <= 20; i++) STEPS.push(i / 20);       /* ~2px resolution per segment */
+
+  var mq = window.matchMedia("(min-width:900px)");
+  var host = document.createElement("div");
+  host.setAttribute("aria-hidden", "true");
+  host.style.cssText = "position:absolute;left:0;top:0;width:1px;height:0;pointer-events:none;visibility:hidden";
+  var io = null, seen = {}, lastTop = 0, on = false;
+
+  function place(){
+    if (!on) return;
+    var tops = Object.keys(seen).map(function(k){ return seen[k]; });
+    var viewTop = tops.length ? Math.min.apply(null, tops) : null;
+    var base = list.offsetTop;
+    var maxOff = Math.max(0, layout.clientHeight - list.offsetHeight - base);
+    var off;
+    if (viewTop === null) {                               /* layout fully off-screen */
+      off = lastTop > layout.clientHeight / 2 ? maxOff : 0;
+    } else {
+      lastTop = viewTop;
+      off = Math.min(Math.max(viewTop + GAP - base, 0), maxOff);
+    }
+    list.style.transform = off ? "translateY(" + Math.round(off) + "px)" : "";
+  }
+  function build(){
+    if (io) io.disconnect();
+    host.innerHTML = ""; seen = {};
+    var h = layout.clientHeight, n = Math.ceil(h / SEG);
+    io = new IntersectionObserver(function(entries){
+      entries.forEach(function(e){
+        var y = +e.target.getAttribute("data-y");
+        if (e.isIntersecting) seen[y] = y + (e.intersectionRect.top - e.boundingClientRect.top);
+        else delete seen[y];
+      });
+      place();
+    }, { threshold: STEPS });
+    for (var k = 0; k < n; k++) {
+      var s = document.createElement("div");
+      s.setAttribute("data-y", k * SEG);
+      s.style.cssText = "position:absolute;left:0;width:1px;top:" + (k * SEG) + "px;height:" + SEG + "px";
+      host.appendChild(s); io.observe(s);
+    }
+  }
+  function update(){
+    var want = mq.matches;
+    if (want && !on) {
+      on = true;
+      document.documentElement.classList.add("ssf-on");
+      if (getComputedStyle(layout).position === "static") layout.style.position = "relative";
+      layout.appendChild(host);
+      build();
+    } else if (!want && on) {
+      on = false;
+      document.documentElement.classList.remove("ssf-on");
+      if (io) io.disconnect();
+      host.remove(); list.style.transform = "";
+    } else if (on) {
+      build();
+    }
+  }
+  var t;
+  function soon(){ clearTimeout(t); t = setTimeout(update, 120); }
+  window.addEventListener("resize", soon);
+  if (window.ResizeObserver) new ResizeObserver(soon).observe(layout);
+  window.addEventListener("load", update);
+  update();
+})();
+</script>
+<!-- ===== /Sticky policy sidebar ===== -->
 </body>
 </html>
